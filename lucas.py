@@ -6,6 +6,8 @@ import uuid
 from datetime import datetime, date, timedelta
 import calendar
 import random
+import json
+import os
 
 # ==========================================
 # Configuração da Página
@@ -39,6 +41,43 @@ def get_next_month(current_date):
     """Retorna o dia 1 do próximo mês."""
     dias_no_mes = calendar.monthrange(current_date.year, current_date.month)[1]
     return (current_date + timedelta(days=dias_no_mes)).replace(day=1)
+
+# ==========================================
+# Persistência de Dados (Local JSON)
+# ==========================================
+DATA_FILE = "dados_financas.json"
+
+def load_data():
+    """Carrega os dados do arquivo JSON. Se não existir, gera os dados fictícios."""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                # O JSON guarda datas como texto, precisamos converter de volta para data
+                for item in data:
+                    if isinstance(item['date'], str):
+                        item['date'] = datetime.strptime(item['date'], '%Y-%m-%d').date()
+                return data
+        except Exception as e:
+            st.error(f"Erro ao carregar dados: {e}")
+    
+    # Se não existir arquivo, gera os dados fictícios e já salva
+    dados_iniciais = generate_mock_data()
+    save_data(dados_iniciais)
+    return dados_iniciais
+
+def save_data(data):
+    """Salva os dados atuais no arquivo JSON."""
+    dados_salvar = []
+    for item in data:
+        novo_item = item.copy()
+        # Converte o objeto de data para texto para poder salvar no JSON
+        if isinstance(novo_item['date'], (datetime, date)):
+            novo_item['date'] = novo_item['date'].strftime('%Y-%m-%d')
+        dados_salvar.append(novo_item)
+        
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(dados_salvar, f, ensure_ascii=False, indent=4)
 
 # ==========================================
 # Geração de Dados Fictícios
@@ -88,14 +127,14 @@ def generate_mock_data():
                 'paymentMethod': 'cartao' if idx % 2 == 0 else 'dinheiro'
             })
             
-    # Ordenar do mais recente para o mais antigo
+        # Ordenar do mais recente para o mais antigo
     return sorted(data, key=lambda x: x['date'], reverse=True)
 
 # ==========================================
 # Inicialização do Estado (State)
 # ==========================================
 if 'transactions' not in st.session_state:
-    st.session_state.transactions = generate_mock_data()
+    st.session_state.transactions = load_data()
 
 if 'current_date' not in st.session_state:
     st.session_state.current_date = date.today().replace(day=1)
@@ -243,6 +282,8 @@ with col_form:
             st.session_state.transactions.insert(0, novo_lancamento)
             # Reordena por data decrescente
             st.session_state.transactions = sorted(st.session_state.transactions, key=lambda x: x['date'], reverse=True)
+            # Salva no arquivo JSON de forma permanente
+            save_data(st.session_state.transactions)
             st.rerun()
 
 with col_table:
@@ -270,6 +311,8 @@ with col_table:
                 if r4.button("🗑️", key=f"del_{row['id']}", help="Excluir lançamento"):
                     # Remove do estado
                     st.session_state.transactions = [t for t in st.session_state.transactions if t['id'] != row['id']]
+                    # Atualiza o arquivo JSON salvando a exclusão
+                    save_data(st.session_state.transactions)
                     st.rerun()
                 
                 st.markdown("<hr style='margin: 5px 0px; opacity: 0.2;'>", unsafe_allow_html=True)
